@@ -148,6 +148,13 @@ func clusterConfig(ctx *cli.Context) error {
 	}
 	cluster.Services = *serviceConfig
 
+	//Get addon manifests
+	addonsInclude, err := getAddonManifests(reader)
+	if err != nil {
+		return err
+	}
+	cluster.AddonsInclude = append(cluster.AddonsInclude, addonsInclude...)
+
 	return writeConfig(&cluster, configFile, print)
 }
 
@@ -336,4 +343,35 @@ func getNetworkConfig(reader *bufio.Reader) (*v3.NetworkConfig, error) {
 	}
 	networkConfig.Plugin = networkPlugin
 	return &networkConfig, nil
+}
+
+func getAddonManifests(reader *bufio.Reader) ([]string, error) {
+	var addonSlice []string
+	var resume = true
+
+	for resume {
+		addonPath, err := getConfig(reader, "Enter the Path or URL for the manifest", "")
+		if err != nil {
+			return nil, err
+		}
+
+		addonSlice = append(addonSlice, addonPath)
+
+		cont, err := getConfig(reader, "Add another addon", "yes|no")
+		if err != nil {
+			return nil, err
+		}
+
+		if strings.ContainsAny(cont, "no n N No") {
+			resume = false
+		} else if strings.ContainsAny(cont, "Yes y Y yes") {
+			resume = true
+		} else {
+			fmt.Sprintf("Could not determine yes or no, writing current addons")
+			resume = false
+		}
+
+	}
+
+	return addonSlice, nil
 }
