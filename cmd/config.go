@@ -167,11 +167,15 @@ func clusterConfig(ctx *cli.Context) error {
 	cluster.Services = *serviceConfig
 
 	//Get addon manifests
-	addonsInclude, err := getAddonManifests(reader)
-	if err != nil {
-		return err
+	addAddons, err := getConfig(reader, "Would you like to add addon manifests", "no")
+	if strings.ContainsAny(addAddons, "Yes y Y yes") {
+		addonsInclude, err := getAddonManifests(reader)
+		if err != nil {
+			return err
+		}
+
+		cluster.AddonsInclude = append(cluster.AddonsInclude, addonsInclude...)
 	}
-	cluster.AddonsInclude = append(cluster.AddonsInclude, addonsInclude...)
 
 	return writeConfig(&cluster, configFile, print)
 }
@@ -421,6 +425,10 @@ func configureFromMachine(reader *bufio.Reader) ([]v3.RKEConfigNode, error) {
 			return nil, err
 		}
 		dockerMachineStore = fmt.Sprintf("%s/.docker/machine/machines", usr.HomeDir)
+	} else {
+		if !strings.Contains(dockerMachineStore, "machines") {
+			dockerMachineStore = fmt.Sprintf("%s/machines", dockerMachineStore)
+		}
 	}
 
 	// Get the docker-machine store path
