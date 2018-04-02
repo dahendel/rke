@@ -332,6 +332,39 @@ func getServiceConfig(reader *bufio.Reader) (*v3.RKEConfigServices, error) {
 		return nil, err
 	}
 	servicesConfig.Kubelet.InfraContainerImage = infraPodImage
+
+	// Add the flexvolume mount to kublet ExtraBinds
+	flexVolMount, err := getConfig(reader, "Enable the FlexVolume driver mount", "no")
+	if err != nil {
+		return nil, err
+	}
+
+	if strings.ContainsAny(flexVolMount, "Yes y Y yes") {
+		servicesConfig.Kubelet.ExtraBinds = append(servicesConfig.Kubelet.ExtraBinds, "/var/lib/kubelet/volumeplugins:/var/lib/kubelet/volumeplugins")
+	}
+
+	// Add additional ExtraBinds
+	var moreMounts = true
+
+	for moreMounts {
+		additionalBinds, err := getConfig(reader, "Add additional bind mounts for kublet service", "no")
+		if err != nil {
+			return nil, err
+		}
+
+		if strings.ContainsAny(additionalBinds, "Yes y Y yes") {
+			bindMounts, err := getConfig(reader, "Additional bind mounts (separated by \",\")", "/dev:/dev")
+
+			if err != nil {
+				return nil, err
+			}
+
+			servicesConfig.Kubelet.ExtraBinds = append(servicesConfig.Kubelet.ExtraBinds, strings.Split(bindMounts, ",")...)
+		} else {
+			moreMounts = false
+		}
+	}
+
 	return &servicesConfig, nil
 }
 
