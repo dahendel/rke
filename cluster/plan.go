@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	b64 "encoding/base64"
+
 	"github.com/rancher/rke/hosts"
 	"github.com/rancher/rke/pki"
 	"github.com/rancher/rke/services"
@@ -52,10 +54,15 @@ func BuildRKEConfigNodePlan(ctx context.Context, myCluster *Cluster, host *hosts
 
 		portChecks = append(portChecks, BuildPortChecksFromPortList(host, EtcdPortList, ProtocolTCP)...)
 	}
+	cloudConfig := v3.File{
+		Name:     CloudConfigPath,
+		Contents: b64.StdEncoding.EncodeToString([]byte(myCluster.CloudConfigFile)),
+	}
 	return v3.RKEConfigNodePlan{
 		Address:    host.Address,
 		Processes:  processes,
 		PortChecks: portChecks,
+		Files:      []v3.File{cloudConfig},
 	}
 }
 
@@ -85,7 +92,7 @@ func (c *Cluster) BuildKubeAPIProcess() v3.Process {
 		"insecure-port":                   "0",
 		"secure-port":                     "6443",
 		"cloud-provider":                  c.CloudProvider.Name,
-		"allow_privileged":                "true",
+		"allow-privileged":                "true",
 		"kubelet-preferred-address-types": "InternalIP,ExternalIP,Hostname",
 		"service-cluster-ip-range":        c.Services.KubeAPI.ServiceClusterIPRange,
 		"admission-control":               "ServiceAccount,NamespaceLifecycle,LimitRanger,PersistentVolumeLabel,DefaultStorageClass,ResourceQuota,DefaultTolerationSeconds",
@@ -97,7 +104,9 @@ func (c *Cluster) BuildKubeAPIProcess() v3.Process {
 		"kubelet-client-key":              pki.GetKeyPath(pki.KubeAPICertName),
 		"service-account-key-file":        pki.GetKeyPath(pki.KubeAPICertName),
 	}
-
+	if len(c.CloudProvider.Name) > 0 {
+		CommandArgs["cloud-config"] = CloudConfigPath
+	}
 	args := []string{
 		"--etcd-cafile=" + etcdCAClientCert,
 		"--etcd-certfile=" + etcdClientCert,
@@ -174,7 +183,9 @@ func (c *Cluster) BuildKubeControllerProcess() v3.Process {
 		"service-account-private-key-file": pki.GetKeyPath(pki.KubeAPICertName),
 		"root-ca-file":                     pki.GetCertPath(pki.CACertName),
 	}
-
+	if len(c.CloudProvider.Name) > 0 {
+		CommandArgs["cloud-config"] = CloudConfigPath
+	}
 	args := []string{}
 	if c.Authorization.Mode == services.RBACAuthorizationMode {
 		args = append(args, "--use-service-account-credentials=true")
@@ -243,11 +254,13 @@ func (c *Cluster) BuildKubeletProcess(host *hosts.Host) v3.Process {
 		"client-ca-file":            pki.GetCertPath(pki.CACertName),
 		"anonymous-auth":            "false",
 		"volume-plugin-dir":         "/var/lib/kubelet/volumeplugins",
-		"require-kubeconfig":        "True",
 		"fail-swap-on":              strconv.FormatBool(c.Services.Kubelet.FailSwapOn),
 	}
 	if host.Address != host.InternalAddress {
 		CommandArgs["node-ip"] = host.InternalAddress
+	}
+	if len(c.CloudProvider.Name) > 0 {
+		CommandArgs["cloud-config"] = CloudConfigPath
 	}
 	VolumesFrom := []string{
 		services.SidekickContainerName,
@@ -264,7 +277,7 @@ func (c *Cluster) BuildKubeletProcess(host *hosts.Host) v3.Process {
 		"/var/run:/var/run:rw,rprivate",
 		"/run:/run:rprivate",
 		"/etc/ceph:/etc/ceph",
-		"/dev:/host/dev,rprivate",
+		"/dev:/host/dev:rprivate",
 		"/var/log/containers:/var/log/containers:z",
 		"/var/log/pods:/var/log/pods:z",
 	}

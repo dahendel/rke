@@ -38,24 +38,13 @@ You can view full sample of cluster.yml [here](https://github.com/rancher/rke/bl
 ### Minimal `cluster.yml` example
 
 ```yaml
+# default k8s version: v1.8.9-rancher1-1
+# default network plugin: flannel
 nodes:
-  - address: 1.1.1.1
+  - address: 1.2.3.4
     user: ubuntu
     role: [controlplane,worker,etcd]
 
-services:
-  etcd:
-    image: quay.io/coreos/etcd:latest
-  kube-api:
-    image: rancher/k8s:v1.8.3-rancher2
-  kube-controller:
-    image: rancher/k8s:v1.8.3-rancher2
-  scheduler:
-    image: rancher/k8s:v1.8.3-rancher2
-  kubelet:
-    image: rancher/k8s:v1.8.3-rancher2
-  kubeproxy:
-    image: rancher/k8s:v1.8.3-rancher2
 ```
 
 ## Network Plugins
@@ -105,7 +94,7 @@ There are extra options that can be specified for each network plugin:
 
 ## Addons
 
-RKE support pluggable addons on cluster bootstrap, user can specify the addon yaml in the cluster.yml file, and when running
+RKE supports pluggable addons on cluster bootstrap, user can specify the addon yaml in the cluster.yml file, and when running
 
 ```yaml
 rke up --config cluster.yml
@@ -152,13 +141,13 @@ to start an HA cluster, just specify more than one host with role `controlplane`
 
 ## Adding/Removing Nodes
 
-RKE support adding/removing nodes for worker and controlplane hosts, in order to add additional nodes you will only need to update the `cluster.yml` file with additional nodes and run `rke up` with the same file.
+RKE supports adding/removing nodes for worker and controlplane hosts, in order to add additional nodes you will only need to update the `cluster.yml` file with additional nodes and run `rke up` with the same file.
 
 To remove nodes just remove them from the hosts list in the cluster configuration file `cluster.yml`, and re run `rke up` command.
 
 ## Cluster Remove
 
-RKE support `rke remove` command, the command does the following:
+RKE supports `rke remove` command, the command does the following:
 
 - Connect to each host and remove the kubernetes services deployed on it.
 - Clean each host from the directories left by the services:
@@ -172,7 +161,7 @@ Note that this command is irreversible and will destroy the kubernetes cluster e
 
 ## Cluster Upgrade
 
-RKE support kubernetes cluster upgrade through changing the image version of services, in order to do that change the image option for each services, for example:
+RKE supports kubernetes cluster upgrade through changing the image version of services, in order to do that change the image option for each services, for example:
 
 ```yaml
 image: rancher/k8s:v1.8.2-rancher1
@@ -194,9 +183,15 @@ RKE will first look for the local `kube_config_cluster.yml` and then tries to up
 
 > Note that rollback isn't supported in RKE and may lead to unxpected results
 
+## Service Upgrade
+
+Service can also be upgraded by changing any of the services arguments or extra args and run `rke up` again with the updated configuration file.
+
+> Please note that changing the following arguments: `service_cluster_ip_range` or `cluster_cidr` will result in a broken cluster, because currently the network pods will not be automatically upgraded.
+
 ## RKE Config
 
-RKE support command `rke config` which generates a cluster config template for the user, to start using this command just write:
+RKE supports command `rke config` which generates a cluster config template for the user, to start using this command just write:
 
 ```bash
 rke config --name mycluster.yml
@@ -295,6 +290,56 @@ services:
 
 Note that RKE only supports connecting to TLS enabled etcd setup, user can enable multiple endpoints in the `external_urls` field. RKE will not accept having external urls and nodes with `etcd` role at the same time, user should only specify either etcd role for servers or external etcd but not both.
 
+## Cloud Providers
+
+Starting from v0.1.3 rke supports cloud providers.
+
+### AWS Cloud Provider
+
+To enable AWS cloud provider, you can set the following in the cluster configuration file:
+```
+cloud_provider:
+  name: aws
+```
+
+AWS cloud provider has to be enabled on ec2 instances with the right IAM role.
+
+### Azure Cloud provider
+
+Azure cloud provider can be enabled by passing `azure` as the cloud provider name and set of options to the configuration file:
+```
+cloud_provider:
+  name: azure
+  cloud_config:
+    aadClientId: xxxxxxxxxxxx
+    aadClientSecret: xxxxxxxxxxx
+    location: westus
+    resourceGroup: rke-rg
+    subnetName: rke-subnet
+    subscriptionId: xxxxxxxxxxx
+    vnetName: rke-vnet
+    tenantId: xxxxxxxxxx
+    securityGroupName: rke-nsg
+```
+
+You also have to make sure that the Azure node name must match the kubernetes node name, you can do that by changing the value of hostname_override in the config file:
+```
+nodes:
+  - address: x.x.x.x
+    hostname_override: azure-rke1
+    user: ubuntu
+    role:
+    - controlplane
+    - etcd
+    - worker
+```
+
+## Deploying Rancher 2.0 using rke
+Using RKE's pluggable user addons, it's possible to deploy Rancher 2.0 server with a single command after updating the node settings in the [rancher-minimal.yml](https://github.com/rancher/rke/blob/master/rancher-minimal.yml) cluster configuration:
+
+```bash
+rke up --config rancher-minimal.yml
+```
 ## Operating Systems Notes
 
 ### Atomic OS

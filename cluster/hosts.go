@@ -6,6 +6,7 @@ import (
 
 	"context"
 
+	"github.com/docker/docker/api/types"
 	"github.com/rancher/rke/hosts"
 	"github.com/rancher/rke/log"
 	"github.com/rancher/rke/pki"
@@ -62,6 +63,9 @@ func (c *Cluster) InvertIndexHosts() error {
 			ToDelLabels:   map[string]string{},
 			ToAddTaints:   []string{},
 			ToDelTaints:   []string{},
+			DockerInfo: types.Info{
+				DockerRootDir: "/var/lib/docker",
+			},
 		}
 		for k, v := range host.Labels {
 			newHost.ToAddLabels[k] = v
@@ -120,6 +124,12 @@ func (c *Cluster) SetUpHosts(ctx context.Context) error {
 			return err
 		}
 		log.Infof(ctx, "[certificates] Successfully deployed kubernetes certificates to Cluster nodes")
+		if c.CloudProvider.Name != "" {
+			if err := deployCloudProviderConfig(ctx, hosts, c.SystemImages.Alpine, c.PrivateRegistriesMap, c.CloudConfigFile); err != nil {
+				return err
+			}
+			log.Infof(ctx, "[%s] Successfully deployed kubernetes cloud config to Cluster nodes", CloudConfigServiceName)
+		}
 	}
 	return nil
 }

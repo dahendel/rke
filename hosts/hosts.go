@@ -37,7 +37,7 @@ type Host struct {
 
 const (
 	ToCleanEtcdDir       = "/var/lib/etcd"
-	ToCleanSSLDir        = "/etc/kubernetes/ssl"
+	ToCleanSSLDir        = "/etc/kubernetes"
 	ToCleanCNIConf       = "/etc/cni"
 	ToCleanCNIBin        = "/opt/cni"
 	ToCleanCNILib        = "/var/lib/cni"
@@ -114,7 +114,7 @@ func (h *Host) CleanUp(ctx context.Context, toCleanPaths []string, cleanerImage 
 		return err
 	}
 
-	if err := docker.WaitForContainer(ctx, h.DClient, CleanerContainerName); err != nil {
+	if err := docker.WaitForContainer(ctx, h.DClient, h.Address, CleanerContainerName); err != nil {
 		return err
 	}
 
@@ -126,7 +126,7 @@ func (h *Host) CleanUp(ctx context.Context, toCleanPaths []string, cleanerImage 
 	return nil
 }
 
-func DeleteNode(ctx context.Context, toDeleteHost *Host, kubeClient *kubernetes.Clientset, hasAnotherRole bool) error {
+func DeleteNode(ctx context.Context, toDeleteHost *Host, kubeClient *kubernetes.Clientset, hasAnotherRole bool, cloudProvider string) error {
 	if hasAnotherRole {
 		log.Infof(ctx, "[hosts] host [%s] has another role, skipping delete from kubernetes cluster", toDeleteHost.Address)
 		return nil
@@ -144,7 +144,7 @@ func DeleteNode(ctx context.Context, toDeleteHost *Host, kubeClient *kubernetes.
 		return err
 	}
 	log.Infof(ctx, "[hosts] Deleting host [%s] from the cluster", toDeleteHost.Address)
-	if err := k8s.DeleteNode(kubeClient, toDeleteHost.HostnameOverride); err != nil {
+	if err := k8s.DeleteNode(kubeClient, toDeleteHost.HostnameOverride, cloudProvider); err != nil {
 		return err
 	}
 	log.Infof(ctx, "[hosts] Successfully deleted host [%s] from the cluster", toDeleteHost.Address)
