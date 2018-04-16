@@ -8,13 +8,17 @@ import (
 	"strconv"
 	"strings"
 
+	"encoding/json"
+	"errors"
 	"github.com/rancher/rke/cluster"
 	"github.com/rancher/rke/pki"
 	"github.com/rancher/rke/services"
+	"github.com/rancher/rke/templates"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 	"gopkg.in/yaml.v2"
+	"os/user"
 )
 
 const (
@@ -40,6 +44,10 @@ func ConfigCommand() cli.Command {
 			cli.BoolFlag{
 				Name:  "print,p",
 				Usage: "Print configuration",
+			},
+			cli.BoolFlag{
+				Name:  "from-machine,m",
+				Usage: "Get node configuration from docker-machine",
 			},
 		},
 	}
@@ -100,24 +108,35 @@ func clusterConfig(ctx *cli.Context) error {
 	}
 	cluster.SSHKeyPath = sshKeyPath
 
-	// Get number of hosts
-	numberOfHostsString, err := getConfig(reader, "Number of Hosts", "1")
-	if err != nil {
-		return err
-	}
-	numberOfHostsInt, err := strconv.Atoi(numberOfHostsString)
-	if err != nil {
-		return err
-	}
-
 	// Get Hosts config
 	cluster.Nodes = make([]v3.RKEConfigNode, 0)
-	for i := 0; i < numberOfHostsInt; i++ {
-		hostCfg, err := getHostConfig(reader, i, cluster.SSHKeyPath)
+	if ctx.Bool("from-machine") {
+		nodes, err := configureFromMachine(reader)
+
 		if err != nil {
 			return err
 		}
-		cluster.Nodes = append(cluster.Nodes, *hostCfg)
+		cluster.Nodes = append(cluster.Nodes, nodes...)
+	} else {
+
+		// Get number of hosts
+		numberOfHostsString, err := getConfig(reader, "Number of Hosts", "1")
+		if err != nil {
+			return err
+		}
+		numberOfHostsInt, err := strconv.Atoi(numberOfHostsString)
+		if err != nil {
+			return err
+		}
+
+		// Get Hosts config
+		for i := 0; i < numberOfHostsInt; i++ {
+			hostCfg, err := getHostConfig(reader, i, cluster.SSHKeyPath)
+			if err != nil {
+				return err
+			}
+			cluster.Nodes = append(cluster.Nodes, *hostCfg)
+		}
 	}
 
 	// Get Network config
@@ -147,6 +166,21 @@ func clusterConfig(ctx *cli.Context) error {
 		return err
 	}
 	cluster.Services = *serviceConfig
+
+	deployRancher, err := getConfig(reader, "Deploy Rancher 2.0 with cluster", "no")
+
+	if err != nil {
+		return err
+	}
+
+	if strings.ContainsAny(deployRancher, "Yes YES Y yes y") {
+		fmt.Sprint("Writting embeded-rancher.yml and adding to AddonsInclude")
+		if err := ioutil.WriteFile("embedded-rancher.yml", []byte(templates.RancherTemplate), 0640); err != nil {
+			return err
+		}
+
+		cluster.AddonsInclude = append(cluster.AddonsInclude, "./embedded-rancher.yml")
+	}
 
 	//Get addon manifests
 	addonsInclude, err := getAddonManifests(reader)
@@ -254,6 +288,8 @@ func getServiceConfig(reader *bufio.Reader) (*v3.RKEConfigServices, error) {
 	servicesConfig.Scheduler = v3.SchedulerService{}
 	servicesConfig.Kubelet = v3.KubeletService{}
 	servicesConfig.Kubeproxy = v3.KubeproxyService{}
+	gkeFlexBind := "/home/kubernetes/flexvolume:/home/kubernetes/flexvolume"
+	rkeFlexBind := "/var/lib/kubelet/volumeplugins:/var/lib/kubelet/volumeplugins"
 
 	imageDefaults := v3.K8sVersionToRKESystemImages[cluster.DefaultK8sVersion]
 
@@ -314,15 +350,13 @@ func getServiceConfig(reader *bufio.Reader) (*v3.RKEConfigServices, error) {
 	}
 	servicesConfig.Kubelet.InfraContainerImage = infraPodImage
 
-	// Add the flexvolume mount to kublet ExtraBinds
-	flexVolMount, err := getConfig(reader, "Enable the FlexVolume driver mount", "no")
+	// Add the flexvolume mount to kubelet ExtraBinds
+	enableFlexVolMount, err := getConfig(reader, "Enable the FlexVolume driver mount", "no")
 	if err != nil {
 		return nil, err
 	}
 
-	if strings.ContainsAny(flexVolMount, "Yes y Y yes") {
-		gkeBind := "/home/kubernetes/flexvolume:/home/kubernetes/flexvolume"
-		rkeBind := "/var/lib/kubelet/volumeplugins:/var/lib/kubelet/volumeplugins"
+	if strings.ContainsAny(enableFlexVolMount, "Yes y Y yes") {
 
 		getCE, err := getConfig(reader, "Deploying to GKE or RKE environment", "rke")
 
@@ -331,9 +365,9 @@ func getServiceConfig(reader *bufio.Reader) (*v3.RKEConfigServices, error) {
 		}
 
 		if strings.ToLower(getCE) == "gke" {
-			servicesConfig.Kubelet.ExtraBinds = append(servicesConfig.Kubelet.ExtraBinds, gkeBind)
+			servicesConfig.Kubelet.ExtraBinds = append(servicesConfig.Kubelet.ExtraBinds, gkeFlexBind)
 		} else {
-			servicesConfig.Kubelet.ExtraBinds = append(servicesConfig.Kubelet.ExtraBinds, rkeBind)
+			servicesConfig.Kubelet.ExtraBinds = append(servicesConfig.Kubelet.ExtraBinds, rkeFlexBind)
 		}
 
 	}
@@ -423,4 +457,149 @@ func getAddonManifests(reader *bufio.Reader) ([]string, error) {
 	}
 
 	return addonSlice, nil
+}
+
+type NodeMachineConfig struct {
+	ConfigVersion int `json:"ConfigVersion,omitempty"`
+	Driver        struct {
+		IPAddress  string `json:"IPAddress,omitempty"`
+		SSHKeyPair string `json:"SSHKeyPair,omitempty"`
+		SSHKeyPath string `json:"SSHKeyPath,omitempty"`
+		SSHPort    int    `json:"SSHPort,omitempty"`
+		SSHUser    string `json:"SSHUser,omitempty"`
+	} `json:"Driver,omitempty"`
+	HostOptions struct {
+		EngineOptions struct {
+			Labels []string `json:"Labels,omitempty"`
+		} `json:"EngineOptions,omitempty"`
+	}
+	Name string `json:"Name,omitempty"`
+}
+
+func configureFromMachine(reader *bufio.Reader) ([]v3.RKEConfigNode, error) {
+
+	dockerMachineStore := os.Getenv("MACHINE_STORAGE_PATH")
+
+	if dockerMachineStore == "" {
+		usr, err := user.Current()
+		if err != nil {
+			return nil, err
+		}
+		dockerMachineStore = fmt.Sprintf("%s/.docker/machine/machines", usr.HomeDir)
+	} else {
+		if !strings.Contains(dockerMachineStore, "machines") {
+			dockerMachineStore = fmt.Sprintf("%s/machines", dockerMachineStore)
+		}
+	}
+
+	// Get the docker-machine store path
+	machineStorePath, err := getConfig(reader, "Docker Machine storage path", dockerMachineStore)
+
+	if err != nil {
+		return nil, err
+	}
+
+	machines, err := getMachines(machineStorePath)
+
+	if err != nil {
+		return nil, err
+	}
+
+	selectedNodes, err := getConfig(reader, "Which nodes would you like to use", strings.Join(machines, ","))
+	if err != nil {
+		return nil, err
+	}
+	nodes := make([]v3.RKEConfigNode, 0)
+	for _, m := range strings.Split(selectedNodes, ",") {
+		node, err := getMachineConfig(machineStorePath, m)
+
+		if err != nil {
+			return nil, err
+		}
+
+		nodes = append(nodes, node)
+	}
+
+	return nodes, nil
+}
+
+func getMachines(storePath string) ([]string, error) {
+	var machines []string
+	dirs, err := ioutil.ReadDir(storePath)
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, d := range dirs {
+		machines = append(machines, d.Name())
+	}
+
+	return machines, nil
+}
+
+func getMachineConfig(storePath, machine string) (v3.RKEConfigNode, error) {
+	nodeConfig := v3.RKEConfigNode{}
+	configPath := fmt.Sprintf("%s/%s/config.json", storePath, machine)
+	configFile, err := ioutil.ReadFile(configPath)
+
+	if err != nil {
+		return nodeConfig, err
+	}
+
+	config := &NodeMachineConfig{}
+
+	if err := json.Unmarshal(configFile, config); err != nil {
+		return nodeConfig, err
+	}
+
+	if config.Driver.IPAddress == "" {
+		return nodeConfig, errors.New(fmt.Sprintf("IPAddress not defined in config.json for %s. "+
+			"Please ensure that the driver is setting these values correctly", machine))
+	}
+
+	if config.Driver.SSHPort == 0 {
+		nodeConfig.Port = "22"
+	}
+
+	nodeConfig.Role = getRolesFromLabels(config)
+	nodeConfig.SSHKeyPath = config.Driver.SSHKeyPath
+	nodeConfig.User = config.Driver.SSHUser
+	nodeConfig.Address = config.Driver.IPAddress
+
+	return nodeConfig, nil
+}
+
+func getRolesFromLabels(conf *NodeMachineConfig) []string {
+	var nodeRoles []string
+	labels := conf.HostOptions.EngineOptions.Labels
+
+	if len(labels) == 0 {
+		return append(nodeRoles, "worker", "controlplane", "etcd")
+	}
+
+	// Parse the labels and determine roles
+	for _, l := range labels {
+		if strings.ContainsAny(l, "worker controlplane etcd") {
+			label := strings.Split(l, "=")
+			ok, err := strconv.ParseBool(label[1])
+
+			if err != nil {
+				logrus.Infof("[config] Could not parse bool from label %s", label[0])
+				continue
+			}
+
+			if ok {
+				nodeRoles = append(nodeRoles, label[0])
+			}
+
+		}
+	}
+
+	if len(nodeRoles) == 0 {
+		nodeRoles = append(nodeRoles, "worker", "controlplane", "etcd")
+	}
+
+	return nodeRoles
+
 }
