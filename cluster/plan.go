@@ -9,6 +9,7 @@ import (
 
 	b64 "encoding/base64"
 
+	ref "github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	"github.com/rancher/rke/docker"
 	"github.com/rancher/rke/hosts"
@@ -28,7 +29,10 @@ const (
 
 func GeneratePlan(ctx context.Context, rkeConfig *v3.RancherKubernetesEngineConfig, hostsInfoMap map[string]types.Info) (v3.RKEPlan, error) {
 	clusterPlan := v3.RKEPlan{}
-	myCluster, _ := ParseCluster(ctx, rkeConfig, "", "", nil, nil, nil)
+	myCluster, err := ParseCluster(ctx, rkeConfig, "", "", nil, nil, nil)
+	if err != nil {
+		return clusterPlan, err
+	}
 	// rkeConfig.Nodes are already unique. But they don't have role flags. So I will use the parsed cluster.Hosts to make use of the role flags.
 	uniqHosts := hosts.GetUniqueHostList(myCluster.EtcdHosts, myCluster.ControlPlaneHosts, myCluster.WorkerHosts)
 	for _, host := range uniqHosts {
@@ -122,8 +126,8 @@ func (c *Cluster) BuildKubeAPIProcess(prefixPath string) v3.Process {
 		CommandArgs["cloud-config"] = CloudConfigPath
 	}
 	// check if our version has specific options for this component
-	serviceOptions, ok := v3.K8sVersionServiceOptions[c.Version]
-	if ok && serviceOptions.KubeAPI != nil {
+	serviceOptions := c.GetKubernetesServicesOptions()
+	if serviceOptions.KubeAPI != nil {
 		for k, v := range serviceOptions.KubeAPI {
 			CommandArgs[k] = v
 		}
@@ -213,8 +217,8 @@ func (c *Cluster) BuildKubeControllerProcess(prefixPath string) v3.Process {
 	}
 
 	// check if our version has specific options for this component
-	serviceOptions, ok := v3.K8sVersionServiceOptions[c.Version]
-	if ok && serviceOptions.KubeController != nil {
+	serviceOptions := c.GetKubernetesServicesOptions()
+	if serviceOptions.KubeController != nil {
 		for k, v := range serviceOptions.KubeController {
 			CommandArgs[k] = v
 		}
@@ -302,8 +306,8 @@ func (c *Cluster) BuildKubeletProcess(host *hosts.Host, prefixPath string) v3.Pr
 	}
 
 	// check if our version has specific options for this component
-	serviceOptions, ok := v3.K8sVersionServiceOptions[c.Version]
-	if ok && serviceOptions.Kubelet != nil {
+	serviceOptions := c.GetKubernetesServicesOptions()
+	if serviceOptions.Kubelet != nil {
 		for k, v := range serviceOptions.Kubelet {
 			CommandArgs[k] = v
 		}
@@ -321,6 +325,7 @@ func (c *Cluster) BuildKubeletProcess(host *hosts.Host, prefixPath string) v3.Pr
 		"/sys:/sys:rprivate",
 		host.DockerInfo.DockerRootDir + ":" + host.DockerInfo.DockerRootDir + ":rw,rslave,z",
 		fmt.Sprintf("%s:%s:shared,z", path.Join(prefixPath, "/var/lib/kubelet"), path.Join(prefixPath, "/var/lib/kubelet")),
+		"/var/lib/rancher:/var/lib/rancher:shared,z",
 		"/var/run:/var/run:rw,rprivate",
 		"/run:/run:rprivate",
 		fmt.Sprintf("%s:/etc/ceph", path.Join(prefixPath, "/etc/ceph")),
@@ -375,8 +380,8 @@ func (c *Cluster) BuildKubeProxyProcess(prefixPath string) v3.Process {
 	}
 
 	// check if our version has specific options for this component
-	serviceOptions, ok := v3.K8sVersionServiceOptions[c.Version]
-	if ok && serviceOptions.Kubeproxy != nil {
+	serviceOptions := c.GetKubernetesServicesOptions()
+	if serviceOptions.Kubeproxy != nil {
 		for k, v := range serviceOptions.Kubeproxy {
 			CommandArgs[k] = v
 		}
@@ -435,7 +440,7 @@ func (c *Cluster) BuildProxyProcess() v3.Process {
 	return v3.Process{
 		Name:          services.NginxProxyContainerName,
 		Env:           Env,
-		Args:          Env,
+		Args:          []string{"nginx-proxy"},
 		NetworkMode:   "host",
 		RestartPolicy: "always",
 		HealthCheck:   v3.HealthCheck{},
@@ -458,8 +463,8 @@ func (c *Cluster) BuildSchedulerProcess(prefixPath string) v3.Process {
 	}
 
 	// check if our version has specific options for this component
-	serviceOptions, ok := v3.K8sVersionServiceOptions[c.Version]
-	if ok && serviceOptions.Scheduler != nil {
+	serviceOptions := c.GetKubernetesServicesOptions()
+	if serviceOptions.Scheduler != nil {
 		for k, v := range serviceOptions.Scheduler {
 			CommandArgs[k] = v
 		}
@@ -536,9 +541,9 @@ func (c *Cluster) BuildEtcdProcess(host *hosts.Host, etcdHosts []*hosts.Host, pr
 		"name":                        "etcd-" + host.HostnameOverride,
 		"data-dir":                    "/var/lib/rancher/etcd",
 		"advertise-client-urls":       "https://" + host.InternalAddress + ":2379,https://" + host.InternalAddress + ":4001",
-		"listen-client-urls":          "https://0.0.0.0:2379",
+		"listen-client-urls":          "https://" + host.InternalAddress + ":2379",
 		"initial-advertise-peer-urls": "https://" + host.InternalAddress + ":2380",
-		"listen-peer-urls":            "https://0.0.0.0:2380",
+		"listen-peer-urls":            "https://" + host.InternalAddress + ":2380",
 		"initial-cluster-token":       "etcd-cluster-1",
 		"initial-cluster":             initCluster,
 		"initial-cluster-state":       clusterState,
@@ -608,4 +613,30 @@ func (c *Cluster) getPrefixPath(osType string) string {
 		prefixPath = c.PrefixPath
 	}
 	return prefixPath
+}
+
+func (c *Cluster) GetKubernetesServicesOptions() v3.KubernetesServicesOptions {
+	clusterMajorVersion := getTagMajorVersion(c.Version)
+	NamedkK8sImage, _ := ref.ParseNormalizedNamed(c.SystemImages.Kubernetes)
+
+	k8sImageTag := NamedkK8sImage.(ref.Tagged).Tag()
+	k8sImageMajorVersion := getTagMajorVersion(k8sImageTag)
+
+	if clusterMajorVersion != k8sImageMajorVersion && k8sImageMajorVersion != "" {
+		clusterMajorVersion = k8sImageMajorVersion
+	}
+
+	serviceOptions, ok := v3.K8sVersionServiceOptions[clusterMajorVersion]
+	if ok {
+		return serviceOptions
+	}
+	return v3.KubernetesServicesOptions{}
+}
+
+func getTagMajorVersion(tag string) string {
+	splitTag := strings.Split(tag, ".")
+	if len(splitTag) < 2 {
+		return ""
+	}
+	return strings.Join(splitTag[:2], ".")
 }
