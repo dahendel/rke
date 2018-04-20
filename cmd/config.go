@@ -174,12 +174,7 @@ func clusterConfig(ctx *cli.Context) error {
 	}
 
 	if strings.ContainsAny(deployRancher, "Yes YES Y yes y") {
-		fmt.Sprint("Writting embeded-rancher.yml and adding to AddonsInclude")
-		if err := ioutil.WriteFile("embedded-rancher.yml", []byte(templates.RancherTemplate), 0640); err != nil {
-			return err
-		}
-
-		cluster.AddonsInclude = append(cluster.AddonsInclude, "./embedded-rancher.yml")
+		cluster.Addons = templates.RancherTemplate
 	}
 
 	//Get addon manifests
