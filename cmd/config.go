@@ -457,11 +457,11 @@ func getAddonManifests(reader *bufio.Reader) ([]string, error) {
 type NodeMachineConfig struct {
 	ConfigVersion int `json:"ConfigVersion,omitempty"`
 	Driver        struct {
-		IPAddress  string `json:"IPAddress,omitempty"`
-		SSHKeyPair string `json:"SSHKeyPair,omitempty"`
-		SSHKeyPath string `json:"SSHKeyPath,omitempty"`
-		SSHPort    int    `json:"SSHPort,omitempty"`
-		SSHUser    string `json:"SSHUser,omitempty"`
+		IPAddress  string `json:"IPAddress"`
+		SSHKeyPair string `json:"SSHKeyPair"`
+		SSHKeyPath string `json:"SSHKeyPath"`
+		SSHPort    int    `json:"SSHPort"`
+		SSHUser    string `json:"SSHUser"`
 	} `json:"Driver,omitempty"`
 	HostOptions struct {
 		EngineOptions struct {
@@ -553,14 +553,17 @@ func getMachineConfig(storePath, machine string) (v3.RKEConfigNode, error) {
 			"Please ensure that the driver is setting these values correctly", machine))
 	}
 
-	if config.Driver.SSHPort == 0 {
-		nodeConfig.Port = "22"
+	sshPort := strconv.Itoa(config.Driver.SSHPort)
+
+	if sshPort == "" {
+		sshPort = "22"
 	}
 
 	nodeConfig.Role = getRolesFromLabels(config)
 	nodeConfig.SSHKeyPath = config.Driver.SSHKeyPath
 	nodeConfig.User = config.Driver.SSHUser
 	nodeConfig.Address = config.Driver.IPAddress
+	nodeConfig.Port = sshPort
 
 	return nodeConfig, nil
 }
