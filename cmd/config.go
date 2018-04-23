@@ -20,7 +20,11 @@ import (
 const (
 	comments = `# If you intened to deploy Kubernetes in an air-gapped environment,
 # please consult the documentation on how to configure custom RKE images.`
+	defaultFlexVolumeBindPath = "/var/lib/kubelet/volumeplugins:/var/lib/kubelet/volumeplugins"
+	yesAnswer                 = "Yes y Y yes"
 )
+
+var FlexVolumeBind string
 
 func ConfigCommand() cli.Command {
 	return cli.Command{
@@ -220,6 +224,7 @@ func getHostConfig(reader *bufio.Reader, index int, clusterSSHKeyPath string) (*
 	if err != nil {
 		return nil, err
 	}
+
 	host.HostnameOverride = hostnameOverride
 
 	internalAddress, err := getConfig(reader, fmt.Sprintf("Internal IP of host (%s)", address), "")
@@ -310,21 +315,21 @@ func getServiceConfig(reader *bufio.Reader) (*v3.RKEConfigServices, error) {
 		return nil, err
 	}
 
-	if strings.ContainsAny(flexVolMount, "Yes y Y yes") {
-		gkeBind := "/home/kubernetes/flexvolume:/home/kubernetes/flexvolume"
-		rkeBind := "/var/lib/kubelet/volumeplugins:/var/lib/kubelet/volumeplugins"
-
-		getCE, err := getConfig(reader, "Deploying to GKE or RKE environment", "rke")
+	if strings.ContainsAny(flexVolMount, yesAnswer) {
+		// Allow the user to set custom flex volume mount points
+		FlexVolumeBind, err = getConfig(reader, "Flex volume bind mount path for kubelet service", defaultFlexVolumeBindPath)
 
 		if err != nil {
 			return nil, err
 		}
+		//If a custom volume bind is passed use it and set the --volume-plugin-dir extra_args for kubelet service
+		if FlexVolumeBind != defaultFlexVolumeBindPath {
+			volPluginDir := strings.Split(FlexVolumeBind, ":")
 
-		if strings.ToLower(getCE) == "gke" {
-			servicesConfig.Kubelet.ExtraBinds = append(servicesConfig.Kubelet.ExtraBinds, gkeBind)
-		} else {
-			servicesConfig.Kubelet.ExtraBinds = append(servicesConfig.Kubelet.ExtraBinds, rkeBind)
+			servicesConfig.Kubelet.ExtraArgs["--volume-plugin-dir"] = volPluginDir[1]
 		}
+
+		servicesConfig.Kubelet.ExtraBinds = append(servicesConfig.Kubelet.ExtraBinds, FlexVolumeBind)
 
 	}
 
@@ -334,7 +339,7 @@ func getServiceConfig(reader *bufio.Reader) (*v3.RKEConfigServices, error) {
 		return nil, err
 	}
 
-	if strings.ContainsAny(additionalBinds, "Yes y Y yes") {
+	if strings.ContainsAny(additionalBinds, yesAnswer) {
 		bindMounts, err := getConfig(reader, "Additional bind mounts (separated by \",\")", "")
 
 		if err != nil {
