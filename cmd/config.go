@@ -175,6 +175,7 @@ func clusterConfig(ctx *cli.Context) error {
 
 	if strings.ContainsAny(deployRancher, "Yes YES Y yes y") {
 		cluster.Addons = templates.RancherTemplate
+		cluster.Ingress.ExtraArgs["enable-ssl-passthrough"] = "true"
 	}
 
 	//Get addon manifests

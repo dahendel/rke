@@ -1,6 +1,6 @@
 package templates
 
-const RancherTemplate = `|-
+const RancherTemplate = `
   ---
   kind: Namespace
   apiVersion: v1
