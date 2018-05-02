@@ -112,7 +112,7 @@ system_images:
 ```
 As of version `0.1.6`, we consolidated several of those images into a single image to simplify and speed the deployment process.
 
-The following images are no longer required, and can be replaced by `rancher/rke-tools:v0.1.2`:
+The following images are no longer required, and can be replaced by `rancher/rke-tools:v0.1.4`:
 - alpine:latest
 - rancher/rke-nginx-proxy:v0.1.1
 - rancher/rke-cert-deployer:v0.1.1
@@ -190,13 +190,13 @@ Note that this command is irreversible and will destroy the kubernetes cluster e
 RKE supports kubernetes cluster upgrade through changing the image version of services, in order to do that change the image option for each services, for example:
 
 ```yaml
-image: rancher/k8s:v1.8.2-rancher1
+image: rancher/hyperkube:v1.9.7
 ```
 
 TO
 
 ```yaml
-image: rancher/k8s:v1.8.3-rancher2
+image: rancher/hyperkube:v1.10.1
 ```
 
 And then run:
