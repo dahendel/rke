@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/rancher/rke/cluster"
 	"github.com/rancher/rke/pki"
 	"github.com/rancher/rke/providers"
@@ -90,6 +91,7 @@ func clusterConfig(ctx *cli.Context) error {
 	print := ctx.Bool("print")
 	cluster := v3.RancherKubernetesEngineConfig{}
 
+	var nodeProvider providers.NodeProvider
 	// Get cluster config from user
 	reader := bufio.NewReader(os.Stdin)
 
@@ -99,6 +101,15 @@ func clusterConfig(ctx *cli.Context) error {
 		return writeConfig(&cluster, configFile, print)
 	}
 
+	if ctx.String("node-provider") != "" {
+		var ok bool
+		nodeProvider, ok = providers.GetNodeProvider(ctx.String("node-provider"))
+
+		if !ok {
+			return fmt.Errorf("provider does not exist, please provide a supported provider. %s", providers.ListProviders())
+		}
+	}
+
 	sshKeyPath, err := getConfig(reader, "Cluster Level SSH Private Key Path", "~/.ssh/id_rsa")
 	if err != nil {
 		return err
@@ -106,23 +117,15 @@ func clusterConfig(ctx *cli.Context) error {
 	cluster.SSHKeyPath = sshKeyPath
 
 	cluster.Nodes = make([]v3.RKEConfigNode, 0)
-	if ctx.String("node-provider") != "" {
+	if nodeProvider != nil {
 
-		providerString, err := getConfig(reader, "Which node provider would you like to use", "docker-machine")
+		machines, err := nodeProvider.ListNodes(reader)
 
-		if err != nil {
-			return err
+		if machines[0] == "" {
+			return errors.New("No nodes were passed to be used. Please pass at least one node")
 		}
 
-		provider, ok := providers.GetNodeProvider(providerString)
-
-		if !ok {
-			return fmt.Errorf("provider does not exist, please provide a supported provider. %s", providers.ListProviders())
-		}
-
-		machines, err := provider.ListNodes(reader)
-
-		nodes, err := provider.GetNodesConfig(machines)
+		nodes, err := nodeProvider.GetNodesConfig(machines)
 
 		if err != nil {
 			return err

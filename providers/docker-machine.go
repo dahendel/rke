@@ -107,7 +107,7 @@ func (d *DockerMachineProvider) GetNodesConfig(nodes []string) ([]v3.RKEConfigNo
 
 func readNodeConfig(node, storePath string) (v3.RKEConfigNode, error) {
 	nodeConfig := v3.RKEConfigNode{}
-	config := dockerMachineConfig{}
+	config := &dockerMachineConfig{}
 	configPath := fmt.Sprintf("%s/%s/config.json", storePath, node)
 
 	configFile, err := ioutil.ReadFile(configPath)
@@ -140,7 +140,7 @@ func readNodeConfig(node, storePath string) (v3.RKEConfigNode, error) {
 	return nodeConfig, nil
 }
 
-func getRolesFromLabels(conf dockerMachineConfig) []string {
+func getRolesFromLabels(conf *dockerMachineConfig) []string {
 	var nodeRoles []string
 	labels := conf.HostOptions.EngineOptions.Labels
 
