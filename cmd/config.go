@@ -42,6 +42,10 @@ func ConfigCommand() cli.Command {
 				Name:  "print,p",
 				Usage: "Print configuration",
 			},
+			cli.StringFlag{
+				Name:  "node-provider,P",
+				Usage: "Get node configurations from a node provider. ie. docker-machine",
+			},
 		},
 	}
 }
