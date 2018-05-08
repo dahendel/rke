@@ -43,11 +43,16 @@ services:
     #   xxxxxxxxxx
     #   -----END PRIVATE KEY-----
   kube-api:
-    service_cluster_ip_range: 10.42.0.0/16
+    service_cluster_ip_range: 10.43.0.0/16
     pod_security_policy: false
     # add additional arguments to the kubernetes component
     # Note that this WILL OVERRIDE existing defaults
     extra_args:
+      # Enable audit log to stdout
+      audit-log-path: "-"
+      # Increase number of delete workers
+      delete-collection-workers: 3
+      # Set the level of log output to debug-level
       v: 4
   kube-controller:
     cluster_cidr: 10.42.0.0/16
