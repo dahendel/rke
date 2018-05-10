@@ -22,6 +22,7 @@ import (
 const (
 	comments = `# If you intened to deploy Kubernetes in an air-gapped environment,
 # please consult the documentation on how to configure custom RKE images.`
+	yesAnswer = "Yes YES Y yes y"
 )
 
 func ConfigCommand() cli.Command {
@@ -392,7 +393,7 @@ func getAddonManifests(reader *bufio.Reader) ([]string, error) {
 		return nil, err
 	}
 
-	if strings.ContainsAny(includeAddons, "Yes YES Y yes y") {
+	if strings.ContainsAny(includeAddons, yesAnswer) {
 		for resume {
 			addonPath, err := getConfig(reader, "Enter the Path or URL for the manifest", "")
 			if err != nil {
@@ -406,7 +407,7 @@ func getAddonManifests(reader *bufio.Reader) ([]string, error) {
 				return nil, err
 			}
 
-			if strings.ContainsAny(cont, "Yes y Y yes YES") {
+			if strings.ContainsAny(cont, yesAnswer) {
 				resume = true
 			} else {
 				resume = false
