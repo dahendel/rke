@@ -366,7 +366,12 @@ func getServiceConfig(reader *bufio.Reader) (*v3.RKEConfigServices, error) {
 
 		// Set the --volume-plugin-dir extra_args for kubelet service
 		volPluginDir := strings.Split(FlexVolumeBind, ":")
-		servicesConfig.Kubelet.ExtraArgs["--volume-plugin-dir"] = volPluginDir[1]
+
+		extraArgs := make(map[string]string)
+
+		extraArgs["--volume-plugin-dir"] = volPluginDir[1]
+
+		servicesConfig.Kubelet.ExtraArgs = extraArgs
 
 		servicesConfig.Kubelet.ExtraBinds = append(servicesConfig.Kubelet.ExtraBinds, FlexVolumeBind)
 
