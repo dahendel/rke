@@ -1,20 +1,38 @@
-package templates
+# default k8s version: v1.8.9-rancher1-1
+# default network plugin: flannel
+nodes:
+  - address: <IP>
+    user: <USER>
+    role: [controlplane,etcd,worker]
+    ssh_key_path: <PEM_FILE>
 
-const RancherTemplate = `
+ingress:
+  provider: nginx
+  extra_args:
+    enable-ssl-passthrough: ""
+
+addons: |-
   ---
   kind: Namespace
   apiVersion: v1
   metadata:
     name: cattle-system
   ---
+  kind: ServiceAccount
+  apiVersion: v1
+  metadata:
+    name: cattle-admin
+    namespace: cattle-system
+  ---
   kind: ClusterRoleBinding
   apiVersion: rbac.authorization.k8s.io/v1
   metadata:
     name: cattle-crb
+    namespace: cattle-system
   subjects:
-  - kind: User
-    name: system:serviceaccount:cattle-system:default
-    apiGroup: rbac.authorization.k8s.io
+  - kind: ServiceAccount
+    name: cattle-admin
+    namespace: cattle-system
   roleRef:
     kind: ClusterRole
     name: cluster-admin
@@ -71,12 +89,13 @@ const RancherTemplate = `
         labels:
           app: cattle
       spec:
+        serviceAccountName: cattle-admin
         containers:
-        - image: rancher/server:master
+        - image: rancher/rancher:master
           imagePullPolicy: Always
           name: cattle-server
           ports:
           - containerPort: 80
             protocol: TCP
           - containerPort: 443
-            protocol: TCP`
+            protocol: TCP
